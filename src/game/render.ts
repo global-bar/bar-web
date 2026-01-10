@@ -98,6 +98,36 @@ function drawAvatar(
   }
 }
 
+// Wrap text into multiple lines based on max width
+function wrapText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  maxLines: number
+): string[] {
+  const lines: string[] = [];
+  let currentLine = '';
+
+  for (const char of text) {
+    const testLine = currentLine + char;
+    const testWidth = ctx.measureText(testLine).width;
+
+    if (testWidth > maxWidth && currentLine.length > 0) {
+      lines.push(currentLine);
+      currentLine = char;
+      if (lines.length >= maxLines) break;
+    } else {
+      currentLine = testLine;
+    }
+  }
+
+  if (currentLine && lines.length < maxLines) {
+    lines.push(currentLine);
+  }
+
+  return lines;
+}
+
 // Draw chat bubble
 function drawBubble(
   ctx: CanvasRenderingContext2D,
@@ -110,13 +140,21 @@ function drawBubble(
   const x = Math.round(user.renderPos.x);
   const y = Math.round(user.renderPos.y);
 
-  const text = user.bubble.text.slice(0, 30);
-  const bubbleY = y - AVATAR.bodyHeight - AVATAR.headHeight - 40;
+  const fontSize = 10;
+  const lineHeight = 14;
+  const maxWidth = 120;
+  const maxLines = 3;
+  const paddingX = 10;
+  const paddingY = 6;
 
-  ctx.font = '16px "Noto Sans KR", "Apple SD Gothic Neo", sans-serif';
-  const textWidth = ctx.measureText(text).width;
-  const bubbleWidth = Math.max(textWidth + 24, 60);
-  const bubbleHeight = 32;
+  ctx.font = `${fontSize}px "Noto Sans KR", "Apple SD Gothic Neo", sans-serif`;
+
+  const lines = wrapText(ctx, user.bubble.text, maxWidth, maxLines);
+  const actualMaxWidth = Math.max(...lines.map(line => ctx.measureText(line).width));
+
+  const bubbleWidth = Math.max(actualMaxWidth + paddingX * 2, 40);
+  const bubbleHeight = lines.length * lineHeight + paddingY * 2;
+  const bubbleY = y - AVATAR.bodyHeight - AVATAR.headHeight - bubbleHeight - 12;
   const bubbleX = x - bubbleWidth / 2;
 
   // Bubble background with rounded corners
@@ -133,17 +171,22 @@ function drawBubble(
   // Bubble tail (small triangle)
   ctx.fillStyle = COLORS.bubbleBg;
   ctx.beginPath();
-  ctx.moveTo(x - 6, bubbleY + bubbleHeight);
-  ctx.lineTo(x + 6, bubbleY + bubbleHeight);
-  ctx.lineTo(x, bubbleY + bubbleHeight + 8);
+  ctx.moveTo(x - 4, bubbleY + bubbleHeight);
+  ctx.lineTo(x + 4, bubbleY + bubbleHeight);
+  ctx.lineTo(x, bubbleY + bubbleHeight + 6);
   ctx.closePath();
   ctx.fill();
 
-  // Text
+  // Text (multiple lines)
   ctx.fillStyle = COLORS.bubbleText;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(text, x, bubbleY + bubbleHeight / 2);
+
+  const startY = bubbleY + paddingY + lineHeight / 2;
+  for (let i = 0; i < lines.length; i++) {
+    ctx.fillText(lines[i], x, startY + i * lineHeight);
+  }
+
   ctx.textBaseline = 'alphabetic';
 }
 

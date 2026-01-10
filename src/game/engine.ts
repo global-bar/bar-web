@@ -29,7 +29,8 @@ export function createGameEngine(
     // Update interpolation for all users
     for (const user of Object.values(world.users)) {
       // Adjust alpha based on frame time for consistent smoothness
-      const alpha = Math.min(0.3, deltaTime / 50);
+      // Higher alpha = faster interpolation toward target position
+      const alpha = Math.min(0.9, deltaTime / 16);
       stepInterpolation(user, alpha);
     }
 
