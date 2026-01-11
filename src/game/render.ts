@@ -1,8 +1,11 @@
 // Canvas rendering with cyberpunk/pixel aesthetic
 
 import type { WorldState, UserEntity } from './world';
+import { CharacterSprite, DEFAULT_CHARACTER_CONFIG } from './sprites/CharacterSprite';
+import { TilemapRenderer } from './tilemap/TilemapRenderer';
+import { BAR_TILEMAP } from './tilemap/barMap';
 
-// Colors - Cyberpunk palette
+// Colors - Cyberpunk palette (fallback)
 const COLORS = {
   background: '#070712',
   gridLine: 'rgba(0, 255, 255, 0.08)',
@@ -18,7 +21,7 @@ const COLORS = {
 // Grid size
 const GRID_SIZE = 48;
 
-// Avatar dimensions
+// Avatar dimensions (fallback)
 const AVATAR = {
   bodyWidth: 24,
   bodyHeight: 30,
@@ -26,7 +29,64 @@ const AVATAR = {
   headHeight: 18,
 };
 
-// Draw grid background
+// Sprite systems (initialized lazily)
+let characterSprite: CharacterSprite | null = null;
+let tilemapRenderer: TilemapRenderer | null = null;
+let assetsInitialized = false;
+
+
+// Initialize sprite and tilemap assets
+export async function initRenderAssets(): Promise<void> {
+  if (assetsInitialized) return;
+
+  try {
+    // Initialize character sprite
+    characterSprite = new CharacterSprite(DEFAULT_CHARACTER_CONFIG);
+    await characterSprite.load();
+
+    // Initialize tilemap
+    tilemapRenderer = new TilemapRenderer(BAR_TILEMAP);
+    await tilemapRenderer.loadAssets();
+    tilemapRenderer.buildFloorCache();
+
+    assetsInitialized = true;
+    console.log('Render assets loaded successfully');
+  } catch (e) {
+    console.warn('Failed to load render assets, using fallback:', e);
+  }
+}
+
+
+// Track moving state per user to prevent flickering
+const userMovingState: Map<string, { moving: boolean; lastMoveTime: number }> = new Map();
+const MOVE_THRESHOLD = 1.5; // 이동 감지 임계값
+const STOP_DELAY_MS = 150; // 멈춤 판정까지 딜레이
+
+// Check if user is moving (with hysteresis to prevent flickering)
+function isUserMoving(user: UserEntity): boolean {
+  const dx = Math.abs(user.pos.x - user.renderPos.x);
+  const dy = Math.abs(user.pos.y - user.renderPos.y);
+  const isCurrentlyMoving = dx > MOVE_THRESHOLD || dy > MOVE_THRESHOLD;
+
+  const now = Date.now();
+  let state = userMovingState.get(user.userId);
+
+  if (!state) {
+    state = { moving: false, lastMoveTime: 0 };
+    userMovingState.set(user.userId, state);
+  }
+
+  if (isCurrentlyMoving) {
+    state.moving = true;
+    state.lastMoveTime = now;
+  } else if (state.moving && now - state.lastMoveTime > STOP_DELAY_MS) {
+    state.moving = false;
+  }
+
+  return state.moving;
+}
+
+// Draw grid background (fallback)
 function drawGrid(ctx: CanvasRenderingContext2D, size: { w: number; h: number }) {
   ctx.strokeStyle = COLORS.gridLine;
   ctx.lineWidth = 1;
@@ -48,8 +108,8 @@ function drawGrid(ctx: CanvasRenderingContext2D, size: { w: number; h: number })
   }
 }
 
-// Draw a single user avatar
-function drawAvatar(
+// Draw a single user avatar (fallback)
+function drawAvatarFallback(
   ctx: CanvasRenderingContext2D,
   user: UserEntity,
   isMe: boolean
@@ -88,13 +148,39 @@ function drawAvatar(
     );
     ctx.shadowBlur = 0;
   }
+}
 
-  // Nickname below avatar
+// Global animation using absolute time (not delta-based)
+const ANIM_FRAME_DURATION = 500; // 0.5초마다 프레임 전환
+
+function getGlobalAnimFrame(): number {
+  return Math.floor(Date.now() / ANIM_FRAME_DURATION) % 2;
+}
+
+// Draw character (sprite or fallback)
+function drawCharacter(
+  ctx: CanvasRenderingContext2D,
+  user: UserEntity,
+  isMe: boolean,
+  _deltaMs: number
+) {
+  const sprite = characterSprite?.isReady() ? characterSprite : null;
+
+  if (sprite) {
+    const moving = isUserMoving(user);
+    sprite.update(0, moving, user.direction);
+    sprite.setFrame(getGlobalAnimFrame());
+    sprite.draw(ctx, user.renderPos.x, user.renderPos.y, isMe);
+  } else {
+    drawAvatarFallback(ctx, user, isMe);
+  }
+
+  // Nickname below character
   if (user.nickname) {
     ctx.fillStyle = COLORS.nickname;
     ctx.font = '14px "Noto Sans KR", "Apple SD Gothic Neo", sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(user.nickname.slice(0, 12), x, y + 18);
+    ctx.fillText(user.nickname.slice(0, 12), user.renderPos.x, user.renderPos.y + 18);
   }
 }
 
@@ -215,31 +301,41 @@ function roundRect(
 // Main render function
 export function renderWorld(
   ctx: CanvasRenderingContext2D,
-  world: WorldState
+  world: WorldState,
+  deltaMs: number = 16
 ): void {
   const { worldSize, users, me } = world;
 
-  // Clear and fill background (use worldSize from server)
+  // Clear and fill background
   ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
   ctx.fillStyle = COLORS.background;
   ctx.fillRect(0, 0, worldSize.w, worldSize.h);
 
-  // Draw grid
-  drawGrid(ctx, worldSize);
+  // Draw tilemap floor layers (or grid fallback)
+  if (tilemapRenderer?.isReady()) {
+    tilemapRenderer.drawFloorLayers(ctx);
+  } else {
+    drawGrid(ctx, worldSize);
+  }
 
-  // Sort users: draw others first, then self on top
+  // Sort users: by Y position for depth, then player on top
   const sortedUsers = Object.values(users).sort((a, b) => {
     if (a.userId === me) return 1;
     if (b.userId === me) return -1;
     return a.renderPos.y - b.renderPos.y;
   });
 
-  // Draw all avatars (server coordinates used directly)
+  // Draw all characters
   for (const user of sortedUsers) {
-    drawAvatar(ctx, user, user.userId === me);
+    drawCharacter(ctx, user, user.userId === me, deltaMs);
   }
 
-  // Draw all bubbles (on top of avatars)
+  // Draw tilemap overlay layers (above characters)
+  if (tilemapRenderer?.isReady()) {
+    tilemapRenderer.drawOverlayLayers(ctx);
+  }
+
+  // Draw all bubbles (on top of everything)
   for (const user of sortedUsers) {
     drawBubble(ctx, user);
   }

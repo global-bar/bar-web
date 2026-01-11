@@ -1,7 +1,7 @@
 // Game loop engine
 
 import { stepInterpolation, cleanExpiredBubbles, type WorldState } from './world';
-import { renderWorld } from './render';
+import { renderWorld, initRenderAssets } from './render';
 
 export type GameEngine = {
   start: () => void;
@@ -15,10 +15,13 @@ export function createGameEngine(
   _dpr: number = 1
 ): GameEngine {
   const ctx = canvas.getContext('2d')!;
-  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingEnabled = false; // Pixel-perfect rendering for sprites
 
   let animationId: number | null = null;
   let lastTime = 0;
+
+  // Initialize render assets (non-blocking)
+  initRenderAssets().catch(console.warn);
 
   const tick = (timestamp: number) => {
     const deltaTime = timestamp - lastTime;
@@ -37,8 +40,8 @@ export function createGameEngine(
     // Clean expired bubbles
     cleanExpiredBubbles(world.users);
 
-    // Render
-    renderWorld(ctx, world);
+    // Render with deltaTime for animation
+    renderWorld(ctx, world, deltaTime);
 
     // Continue loop
     animationId = requestAnimationFrame(tick);
