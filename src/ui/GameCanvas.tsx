@@ -1,7 +1,9 @@
 import { useRef, useEffect } from 'react';
 import { createGameEngine } from '../game/engine';
-import { createKeyboardInput, isMoving } from '../game/input';
+import { createKeyboardInput, isMoving, type Keys } from '../game/input';
 import { useBarStore } from '../store/useBarStore';
+import { BAR_TILEMAP } from '../game/tilemap/barMap';
+import { canMoveTo } from '../game/tilemap/TilemapData';
 
 // Base canvas size (matches server world size)
 const BASE_WIDTH = 960;
@@ -40,11 +42,43 @@ export function GameCanvas() {
     // Create keyboard input
     const input = createKeyboardInput();
 
+    // 충돌 검사 후 이동 가능한 키만 필터링
+    const filterBlockedKeys = (keys: Keys): Keys => {
+      const me = worldRef.current.users[worldRef.current.me ?? ''];
+      if (!me) return keys;
+
+      const speed = 4; // 예상 이동 속도 (픽셀)
+      const result: Keys = { up: false, down: false, left: false, right: false };
+
+      // 각 방향별로 충돌 검사
+      if (keys.up) {
+        const canMove = canMoveTo(BAR_TILEMAP, me.pos.x, me.pos.y - speed);
+        result.up = canMove;
+      }
+      if (keys.down) {
+        const canMove = canMoveTo(BAR_TILEMAP, me.pos.x, me.pos.y + speed);
+        result.down = canMove;
+      }
+      if (keys.left) {
+        const canMove = canMoveTo(BAR_TILEMAP, me.pos.x - speed, me.pos.y);
+        result.left = canMove;
+      }
+      if (keys.right) {
+        const canMove = canMoveTo(BAR_TILEMAP, me.pos.x + speed, me.pos.y);
+        result.right = canMove;
+      }
+
+      return result;
+    };
+
     // Move intent sender (throttled based on server rules)
     const moveHz = serverRules?.moveLimitHz ?? 15;
     const moveInterval = setInterval(() => {
       if (isMoving(input.keys)) {
-        sendMoveIntent(input.keys);
+        const filteredKeys = filterBlockedKeys(input.keys);
+        if (isMoving(filteredKeys)) {
+          sendMoveIntent(filteredKeys);
+        }
       }
     }, 1000 / moveHz);
 
