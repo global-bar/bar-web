@@ -21,19 +21,25 @@ export function ChatBox() {
     }
   }, [chatMessages]);
 
-  // Handle Enter key globally to focus chat
+  // Handle Enter key globally to focus chat, ESC to unfocus
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Enter' && document.activeElement !== inputRef.current) {
         e.preventDefault();
         setIsExpanded(true);
         inputRef.current?.focus();
+      } else if (e.key === 'Escape' && document.activeElement === inputRef.current) {
+        e.preventDefault();
+        inputRef.current?.blur();
+        if (!input) {
+          setIsExpanded(false);
+        }
       }
     };
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, []);
+  }, [input]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
